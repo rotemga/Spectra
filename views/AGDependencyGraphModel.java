@@ -2,6 +2,7 @@ package tau.smlab.syntech.dependencygraph.views;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 import javax.inject.Inject;
 
@@ -16,8 +17,10 @@ import org.eclipse.xtext.resource.XtextResource;
 import org.eclipse.xtext.ui.editor.XtextEditor;
 
 import tau.smlab.syntech.services.SpectraGrammarAccess;
+import tau.smlab.syntech.spectra.DefineDecl;
 import tau.smlab.syntech.spectra.LTLAsm;
 import tau.smlab.syntech.spectra.LTLGar;
+import tau.smlab.syntech.spectra.PredicateOrPatternReferrable;
 import tau.smlab.syntech.spectra.TemporalExpression;
 import tau.smlab.syntech.spectra.TemporalPrimaryExpr;
 import tau.smlab.syntech.spectra.VarDecl;
@@ -65,10 +68,19 @@ public class AGDependencyGraphModel {
    * @param xtextResource
    */
   public void setXtextResource(XtextResource resource) {
+    clearLists();
     this.resource = resource;
     calculateGarAsmNodeList(resource);
     calculateGarAsmEdgeList();
     updateController();
+    
+  }
+  
+  public void clearLists () {
+    if (!this.GarAsmEdgeList.isEmpty())
+      this.GarAsmEdgeList.clear();
+    if (!this.GarAsmNodeList.isEmpty())
+      this.GarAsmNodeList.clear();
     
   }
   
@@ -118,18 +130,10 @@ public class AGDependencyGraphModel {
         ArrayList<String> varsNames = new ArrayList<String>();
         //find the TemporalExpression in current gar
         temporalExpresison =  garList.get(i).getTemporalExpr();
-        //find the list of TemporalPrimaryExpr in temporalExpresison
-        List<TemporalPrimaryExpr> tpeList = TypeSystemUtils.getAllTemporaryPrimaryExprs(temporalExpresison);
-        //ArrayList<VarDecl> vars = new ArrayList<VarDecl> ();
-        //go over tpeList and for each TemporalPrimaryExpr find the var in it, if exist.
-        for (TemporalPrimaryExpr tpe: tpeList){
-          VarDecl var = TypeSystemUtils.extractVarDeclFromTemporalPrimaryExpr(tpe);
-          if (var != null) {
-             //vars.add(var);
-            if(!(varsNames.contains(var.getName())))
-                varsNames.add(var.getName());
-           }
-        }
+        
+        //find all vars names in temporalExpresison 
+        findVarsNames (temporalExpresison, varsNames);
+
         String name = garList.get(i).getName();
         if (name == null){
           //if the name is null, find the first numberOfChars that written in file.
@@ -157,18 +161,9 @@ public class AGDependencyGraphModel {
         ArrayList<String> varsNames = new ArrayList<String>();
         //find the TemporalExpression in current asm
         temporalExpresison =  asmList.get(i).getTemporalExpr();
-        //find the list of TemporalPrimaryExpr in temporalExpresison
-        List<TemporalPrimaryExpr> tpeList = TypeSystemUtils.getAllTemporaryPrimaryExprs(temporalExpresison);
-        //ArrayList<VarDecl> vars = new ArrayList<VarDecl> ();
-        //go over tpeList and for each TemporalPrimaryExpr find the var in it, if exist.
-        for (TemporalPrimaryExpr tpe: tpeList){
-          VarDecl var = TypeSystemUtils.extractVarDeclFromTemporalPrimaryExpr(tpe);
-          if (var != null) {
-             //vars.add(var);
-            if(!(varsNames.contains(var.getName())))
-              varsNames.add(var.getName());
-           }
-        }
+        
+        //find all vars names in temporalExpresison 
+        findVarsNames (temporalExpresison, varsNames);
         
         String name = asmList.get(i).getName();
         if (name == null){
@@ -195,18 +190,46 @@ public class AGDependencyGraphModel {
 
   }
   
+  void findVarsNames (TemporalExpression temporalExpression, ArrayList<String> varsNames) {
+
+    // find the list of TemporalPrimaryExpr in temporalExpresison
+    List<TemporalPrimaryExpr> tpeList = TypeSystemUtils.getAllTemporaryPrimaryExprs(temporalExpression);
+    // go over tpeList and for each TemporalPrimaryExpr find the var in it, if
+    // exist.
+    for (TemporalPrimaryExpr tpe : tpeList) {
+      VarDecl var = TypeSystemUtils.extractVarDeclFromTemporalPrimaryExpr(tpe);
+      if (var != null) {
+        if (!(varsNames.contains(var.getName())))
+          varsNames.add(var.getName());
+        continue;
+      }
+      if (tpe.getPointer() != null && tpe.getPointer() instanceof DefineDecl) {
+        DefineDecl define = (DefineDecl) tpe.getPointer();
+        findVarsNames(define.getSimpleExpr(), varsNames);
+        continue;
+      }
+      if (tpe.getPredPattParams() != null && tpe.getPredPatt() != null) {
+        EList<TemporalExpression> predPattParams = tpe.getPredPattParams();
+        for (TemporalExpression param : predPattParams) {
+          findVarsNames(param, varsNames);
+        }
+      }
+    }
+
+  }
+  
 
   
   public void calculateGarAsmEdgeList() {
     int size = GarAsmNodeList.size();
-    for (int i=0; i<size; i++) {
-      for (int j=i+1; j<size ;j++) {
+    for (int i = 0; i < size; i++) {
+      for (int j = i + 1; j < size; j++) {
         NodeInfo node1 = GarAsmNodeList.get(i);
         NodeInfo node2 = GarAsmNodeList.get(j);
         ArrayList<String> commonVars = intersection(node1.getEdgesNames(), node2.getEdgesNames());
         if (commonVars.isEmpty())
           continue;
-        ArrayList<MyPair<String,Integer>> nodes = new ArrayList<MyPair<String, Integer>> (2);
+        ArrayList<MyPair<String, Integer>> nodes = new ArrayList<MyPair<String, Integer>>(2);
         MyPair<String, Integer> pair1 = MyPair.createPair(node1.getNodeName(), i);
         MyPair<String, Integer> pair2 = MyPair.createPair(node2.getNodeName(), j);
         nodes.add(pair1);
@@ -214,8 +237,6 @@ public class AGDependencyGraphModel {
         EdgeInfo edgesBetweenNodes = new EdgeInfo(nodes, commonVars);
         GarAsmEdgeList.add(edgesBetweenNodes);
 
-
-        
       }
     }
   }
